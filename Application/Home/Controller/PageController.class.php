@@ -38,6 +38,8 @@ class PageController extends BaseController {
         if ($page_id > 0 ) {
             if ($page_history_id) {
                 $page = D("PageHistory")->where(" page_history_id = '$page_history_id' ")->find();
+                $page_content = gzuncompress(base64_decode($page['page_content'])); 
+                $page['page_content'] = $page_content ? $page_content : $page['page_content'] ;
             }else{
                 $page = D("Page")->where(" page_id = '$page_id' ")->find();
             }
@@ -67,14 +69,91 @@ class PageController extends BaseController {
             return;
         }
 
+        $Catalog = D("Catalog")->where(" cat_id = '$default_cat_id' ")->find();
+        if ($Catalog['parent_cat_id']) {
+            $default_second_cat_id = $Catalog['parent_cat_id'];
+            $default_child_cat_id = $default_cat_id;
+
+        }else{
+            $default_second_cat_id = $default_cat_id;
+        }
 
         $this->assign("page" , $page);
         $this->assign("item_id" , $item_id);
-        $this->assign("default_cat_id" , $default_cat_id);
+        $this->assign("default_second_cat_id" , $default_second_cat_id);
+        $this->assign("default_child_cat_id" , $default_child_cat_id);
 
 
         $this->display();        
     }
+
+    //跳转到HTTP接口测试页面
+	public function http_api(){
+		
+		$this->display(); 
+	}
+
+	//处理HTTP测试请求，返回请求接口后的数据
+	public function ajaxHttpApi(){
+		$url=I('url');
+		$method=I('method');
+		$params=I('params');
+		if($method=='get'){
+			$url=$url."?".$params;
+			$return=$this->http_get($url);
+		}else{
+			$return=$this->http_post($url, $params);
+		}
+		echo $return;
+	}
+	/**
+	 * GET 请求
+	 *
+	 * @param string $url        	
+	 */
+	private function http_get($url) {
+		$oCurl = curl_init ();
+		if (stripos ( $url, "https://" ) !== FALSE) {
+			curl_setopt ( $oCurl, CURLOPT_SSL_VERIFYPEER, FALSE );
+			curl_setopt ( $oCurl, CURLOPT_SSL_VERIFYHOST, FALSE );
+		}
+		curl_setopt ( $oCurl, CURLOPT_URL, $url );
+		curl_setopt ( $oCurl, CURLOPT_RETURNTRANSFER, 1 );
+		$sContent = curl_exec ( $oCurl );
+		curl_close ( $oCurl );
+		return $sContent;
+	}
+	
+	/**
+	 * POST 请求
+	 *
+	 * @param string $url        	
+	 * @param array $param        	
+	 * @return string content
+	 */
+	private function http_post($url, $param) {
+		$oCurl = curl_init ();
+		if (stripos ( $url, "https://" ) !== FALSE) {
+			curl_setopt ( $oCurl, CURLOPT_SSL_VERIFYPEER, FALSE );
+			curl_setopt ( $oCurl, CURLOPT_SSL_VERIFYHOST, false );
+		}
+		if (is_string ( $param )) {
+			$strPOST = $param;
+		} else {
+			$aPOST = array ();
+			foreach ( $param as $key => $val ) {
+				$aPOST [] = $key . "=" . urlencode ( $val );
+			}
+			$strPOST = join ( "&", $aPOST );
+		}
+		curl_setopt ( $oCurl, CURLOPT_URL, $url );
+		curl_setopt ( $oCurl, CURLOPT_RETURNTRANSFER, 1 );
+		curl_setopt ( $oCurl, CURLOPT_POST, true );
+		curl_setopt ( $oCurl, CURLOPT_POSTFIELDS, $strPOST );
+		$sContent = curl_exec ( $oCurl );
+		curl_close ( $oCurl );
+		return $sContent;
+	}
 
     //保存
     public function save(){
@@ -84,7 +163,7 @@ class PageController extends BaseController {
         $page_content = I("page_content");
         $cat_id = I("cat_id/d")? I("cat_id/d") : 0;
         $item_id = I("item_id/d")? I("item_id/d") : 0;
-        $order = I("order/d")? I("order/d") : 99;
+        $s_number = I("s_number/d")? I("s_number/d") : 99;
 
         $login_user = $this->checkLogin();
         if (!$this->checkItemPermn($login_user['uid'] , $item_id)) {
@@ -94,7 +173,7 @@ class PageController extends BaseController {
 
         $data['page_title'] = $page_title ;
         $data['page_content'] = $page_content ;
-        $data['order'] = $order ;
+        $data['s_number'] = $s_number ;
         $data['item_id'] = $item_id ;
         $data['cat_id'] = $cat_id ;
         $data['addtime'] = time();
@@ -110,8 +189,8 @@ class PageController extends BaseController {
                 'item_id'=>$page['item_id'],
                 'cat_id'=>$page['cat_id'],
                 'page_title'=>$page['page_title'],
-                'page_content'=>$page['page_content'],
-                'order'=>$page['order'],
+                'page_content'=>base64_encode( gzcompress($page['page_content'], 9)),
+                's_number'=>$page['s_number'],
                 'addtime'=>$page['addtime'],
                 'author_uid'=>$page['author_uid'],
                 'author_username'=>$page['author_username'],
@@ -119,6 +198,14 @@ class PageController extends BaseController {
              D("PageHistory")->add($insert_history);
 
             $ret = D("Page")->where(" page_id = '$page_id' ")->save($data);
+
+            //统计该page_id有多少历史版本了
+            $Count = D("PageHistory")->where(" page_id = '$page_id' ")->Count();
+            if ($Count > 20 ) {
+               //每个单页面只保留最多20个历史版本
+               $ret = D("PageHistory")->where(" page_id = '$page_id' ")->limit("20")->order("page_history_id desc")->select();
+               D("PageHistory")->where(" page_id = '$page_id' and page_history_id < ".$ret[19]['page_history_id'] )->delete();
+            }
 
             //更新项目时间
             D("Item")->where(" item_id = '$item_id' ")->save(array("last_update_time"=>time()));
@@ -154,15 +241,15 @@ class PageController extends BaseController {
 
         if ($page) {
             
-            $ret = D("Page")->where(" page_id = '$page_id' ")->limit(1)->delete();
+            $ret = D("Page")->where(" page_id = '$page_id' ")->delete();
             //更新项目时间
             D("Item")->where(" item_id = '$page[item_id]' ")->save(array("last_update_time"=>time()));
 
         }
         if ($ret) {
-           $this->message("删除成功！",U("Home/item/show").'?item_id='.$page['item_id']);
+           $this->message("删除成功！",U("Home/item/show?item_id={$page['item_id']}"));
         }else{
-           $this->message("删除失败！",U("Home/item/show").'?item_id='.$page['item_id']);
+           $this->message("删除失败！",U("Home/item/show?item_id={$page['item_id']}"));
         }
     }
 
@@ -175,6 +262,8 @@ class PageController extends BaseController {
 
         if ($PageHistory) {
             foreach ($PageHistory as $key => &$value) {
+                $page_content = gzuncompress(base64_decode($value['page_content'])); 
+                $value['page_content'] = $page_content ? $page_content : $value['page_content'] ;
                 $value['addtime'] = date("Y-m-d H:i:s" , $value['addtime']);
             }
         }

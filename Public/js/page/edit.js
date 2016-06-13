@@ -5,14 +5,15 @@ var json_table_data='|参数名|类型|说明|\n'+
 
 $(function() {
   /*加载目录*/
-  getCatList();
+  secondCatList();
 
-  function getCatList() {
-    var default_cat_id = $("#default_cat_id").val();
+  function secondCatList() {
+    var default_second_cat_id = $("#default_second_cat_id").val();
     var item_id = $("#item_id").val();
     $.get(
-      "../catalog/catList", {
-        "item_id": item_id
+      "./", {
+        "item_id": item_id,
+        "s": "home/catalog/secondCatList",
       },
       function(data) {
         $("#cat_id").html('<OPTION value="0">无</OPTION>');
@@ -21,12 +22,13 @@ $(function() {
           console.log(json);
           for (var i = 0; i < json.length; i++) {
             cat_html = '<OPTION value="' + json[i].cat_id + '" ';
-            if (default_cat_id == json[i].cat_id) {
+            if (default_second_cat_id == json[i].cat_id) {
               cat_html += ' selected ';
             }
 
             cat_html += ' ">' + json[i].cat_name + '</OPTION>';
             $("#cat_id").append(cat_html);
+            getChildCatList();
           };
         };
 
@@ -35,6 +37,41 @@ $(function() {
 
     );
   }
+
+  function getChildCatList() {
+    var cat_id = $("#cat_id").val();
+    var default_child_cat_id = $("#default_child_cat_id").val();
+    $.get(
+      "./", {
+        "cat_id": cat_id,
+        "s": "home/catalog/childCatList",
+      },
+      function(data) {
+        $("#parent_cat_id").html('<OPTION value="0">无</OPTION>');
+        if (data.error_code == 0) {
+          json = data.data;
+          console.log(json);
+          for (var i = 0; i < json.length; i++) {
+            cat_html = '<OPTION value="' + json[i].cat_id + '" ';
+            if (default_child_cat_id == json[i].cat_id) {
+              cat_html += ' selected ';
+            }
+
+            cat_html += ' ">' + json[i].cat_name + '</OPTION>';
+            $("#parent_cat_id").append(cat_html);
+          };
+        }else{
+        }
+
+      },
+      "json"
+
+    );
+  }
+  //监听是否选择了目录。如果选择了，则跟后台判断是否还子目录
+  $("#cat_id").change(function(){
+    getChildCatList();
+  });
 
   var keyMap = {
     // 保存
@@ -70,7 +107,7 @@ $(function() {
     placeholder: "本编辑器支持Markdown编辑，左边编写，右边预览",
     imageUpload: true,
     imageFormats: ["jpg", "jpeg", "gif", "png", "bmp", "webp", "JPG", "JPEG", "GIF", "PNG", "BMP", "WEBP"],
-    imageUploadURL: "uploadImg",
+    imageUploadURL: "?s=home/page/uploadImg",
     onload: function() {
       this.addKeyMap(keyMap);
     }
@@ -141,17 +178,21 @@ $(function() {
     if (saving) return false;
     var page_id = $("#page_id").val();
     var item_id = $("#item_id").val();
-    var cat_id = $("#cat_id").val();
     var page_title = $("#page_title").val();
     var page_content = $("#page_content").val();
     var item_id = $("#item_id").val();
-    var order = $("#order").val();
+    var s_number = $("#s_number").val();
+    var cat_id = $("#cat_id").val();
+    var parent_cat_id = $("#parent_cat_id").val();
+    if (parent_cat_id > 0 ) {
+      cat_id = parent_cat_id ;
+    };
     saving = true;
     $.post(
-      "save", {
+      "?s=home/page/save", {
         "page_id": page_id,
         "cat_id": cat_id,
-        "order": order,
+        "s_number": s_number,
         "page_content": page_content,
         "page_title": page_title,
         "item_id": item_id
@@ -159,7 +200,7 @@ $(function() {
       function(data) {
         if (data.error_code == 0) {
           $.bootstrapGrowl("保存成功！");
-          window.location.href = "../item/show?page_id=" + data.data.page_id + "&item_id=" + item_id;
+          window.location.href = "?s=home/item/show&page_id=" + data.data.page_id + "&item_id=" + item_id;
         } else {
           $.bootstrapGrowl("保存失败！");
 

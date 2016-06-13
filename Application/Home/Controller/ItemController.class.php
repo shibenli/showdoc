@@ -5,7 +5,7 @@ class ItemController extends BaseController {
 	//项目列表页
     public function index(){
     	$login_user = $this->checkLogin();        
-    	$items  = D("Item")->where("uid = '$login_user[uid]' or item_id in ( select ".C('DB_PREFIX')."item_id from item_member where uid = '$login_user[uid]' ) ")->select();
+    	$items  = D("Item")->where("uid = '$login_user[uid]' or item_id in ( select item_id from ".C('DB_PREFIX')."item_member where uid = '$login_user[uid]' ) ")->select();
         
         $share_url = get_domain().__APP__.'/uid/'.$login_user['uid'];
 
@@ -20,7 +20,7 @@ class ItemController extends BaseController {
         $uid = I("uid/d");
         $show_user = D("User")->where(" uid = '$uid' ")->find();
         if ($show_user) {
-            $items  = D("Item")->where(" password = '' and  ( uid = '$show_user[uid]' or item_id in ( select ".C('DB_PREFIX')."item_id from item_member where uid = '$show_user[uid]' ) ) ")->select();
+            $items  = D("Item")->where(" password = '' and  ( uid = '$show_user[uid]' or item_id in ( select item_id from ".C('DB_PREFIX')."item_member where uid = '$show_user[uid]' ) ) ")->select();
             $this->assign("items" , $items);
             $this->assign("show_user" , $show_user);
             $this->assign("login_user" , $login_user);
@@ -73,6 +73,8 @@ class ItemController extends BaseController {
     public function show(){
         $this->checkLogin(false);
         $item_id = I("item_id/d");
+        $current_page_id = I("page_id/d");
+
         $keyword = I("keyword");
         $login_user = session("login_user");
         $uid = $login_user['uid'] ? $login_user['uid'] : 0 ;
@@ -85,27 +87,40 @@ class ItemController extends BaseController {
         //是否有搜索词
         if ($keyword) {
             $keyword = mysql_escape_string($keyword);
-            $pages = D("Page")->where("item_id = '$item_id' and ( page_title like '%{$keyword}%' or page_content like '%{$keyword}%' ) ")->order(" `order` asc  ")->select();
+            $pages = D("Page")->where("item_id = '$item_id' and ( page_title like '%{$keyword}%' or page_content like '%{$keyword}%' ) ")->order(" `s_number` asc  ")->select();
         
         }else{
             //获取所有父目录id为0的页面
-            $pages = D("Page")->where("cat_id = '0' and item_id = '$item_id' ")->order(" `order` asc  ")->select();
-            //获取所有目录
-            $catalogs = D("Catalog")->where("item_id = '$item_id' ")->order(" `order` asc  ")->select();
+            $pages = D("Page")->where("cat_id = '0' and item_id = '$item_id' ")->order(" `s_number` asc  ")->select();
+            //获取所有二级目录
+            $catalogs = D("Catalog")->where("item_id = '$item_id' and level = 2  ")->order(" `s_number` asc  ")->select();
             if ($catalogs) {
                 foreach ($catalogs as $key => &$catalog) {
-                    $temp = D("Page")->where("cat_id = '$catalog[cat_id]' ")->order(" `order` asc  ")->select();
+                    //该二级目录下的所有子页面
+                    $temp = D("Page")->where("cat_id = '$catalog[cat_id]' ")->order(" `s_number` asc  ")->select();
                     $catalog['pages'] = $temp ? $temp: array();
+
+                    //该二级目录下的所有子目录
+                    $temp = D("catalog")->where("parent_cat_id = '$catalog[cat_id]' ")->order(" `s_number` asc  ")->select();
+                    $catalog['catalogs'] = $temp ? $temp: array();
+                    if($catalog['catalogs']){
+                        //获取所有三级目录的子页面
+                        foreach ($catalog['catalogs'] as $key3 => &$catalog3) {
+                            //该二级目录下的所有子页面
+                            $temp = D("Page")->where("cat_id = '$catalog3[cat_id]' ")->order(" `s_number` asc  ")->select();
+                            $catalog3['pages'] = $temp ? $temp: array();
+                        }                        
+                    }               
                 }
             }
         }
-
         $share_url = get_domain().__APP__.'/'.$item_id;
 
         $ItemPermn = $this->checkItemPermn($uid , $item_id) ;
 
         $ItemCreator = $this->checkItemCreator($uid , $item_id);
 
+        $this->assign("current_page_id" , $current_page_id);
         $this->assign("keyword" , $keyword);
         $this->assign("ItemPermn" , $ItemPermn);
         $this->assign("ItemCreator" , $ItemCreator);
@@ -146,10 +161,10 @@ class ItemController extends BaseController {
         }
 
 
-        D("Page")->where("item_id = '$item_id' ")->limit(1000)->delete();
-        D("Catalog")->where("item_id = '$item_id' ")->limit(100)->delete();
-        D("PageHistory")->where("item_id = '$item_id' ")->limit(1000)->delete();
-        $return = D("Item")->where("item_id = '$item_id' ")->limit(1)->delete();
+        D("Page")->where("item_id = '$item_id' ")->delete();
+        D("Catalog")->where("item_id = '$item_id' ")->delete();
+        D("PageHistory")->where("item_id = '$item_id' ")->delete();
+        $return = D("Item")->where("item_id = '$item_id' ")->delete();
 
         if (!$return) {
             $return['error_code'] = 10103 ;
@@ -175,7 +190,7 @@ class ItemController extends BaseController {
             $item = D("Item")->where("item_id = '$item_id' ")->find();
             if ($item['password'] == $password) {
                 session("visit_item_".$item_id , 1 );
-                header("location:".U("Home/Item/show").'?item_id='.$item_id);
+                header("location:".U("Home/Item/show").'&item_id='.$item_id);
             }else{
                 
                 $this->message("访问密码不正确");
@@ -200,14 +215,28 @@ class ItemController extends BaseController {
         }
 
         $item = D("Item")->where("item_id = '$item_id' ")->find();
+
         //获取所有父目录id为0的页面
-        $pages = D("Page")->where("cat_id = '0' and item_id = '$item_id' ")->order(" `order` asc  ")->select();
-        //获取所有目录
-        $catalogs = D("Catalog")->where("item_id = '$item_id' ")->order(" `order` asc  ")->select();
+        $pages = D("Page")->where("cat_id = '0' and item_id = '$item_id' ")->order(" `s_number` asc  ")->select();
+        //获取所有二级目录
+        $catalogs = D("Catalog")->where("item_id = '$item_id' and level = 2  ")->order(" `s_number` asc  ")->select();
         if ($catalogs) {
             foreach ($catalogs as $key => &$catalog) {
-                $temp = D("Page")->where("cat_id = '$catalog[cat_id]' ")->order(" `order` asc  ")->select();
+                //该二级目录下的所有子页面
+                $temp = D("Page")->where("cat_id = '$catalog[cat_id]' ")->order(" `s_number` asc  ")->select();
                 $catalog['pages'] = $temp ? $temp: array();
+
+                //该二级目录下的所有子目录
+                $temp = D("catalog")->where("parent_cat_id = '$catalog[cat_id]' ")->order(" `s_number` asc  ")->select();
+                $catalog['catalogs'] = $temp ? $temp: array();
+                if($catalog['catalogs']){
+                    //获取所有三级目录的子页面
+                    foreach ($catalog['catalogs'] as $key3 => &$catalog3) {
+                        //该二级目录下的所有子页面
+                        $temp = D("Page")->where("cat_id = '$catalog3[cat_id]' ")->order(" `s_number` asc  ")->select();
+                        $catalog3['pages'] = $temp ? $temp: array();
+                    }                        
+                }               
             }
         }
 
@@ -236,6 +265,25 @@ class ItemController extends BaseController {
                                 $data .= htmlspecialchars_decode($Parsedown->text($page['page_content']));
                             $data .= '</div>';
                             $child ++;
+                        }
+                    }
+                    if ($value['catalogs']) {
+                        $parent2 = 1 ;
+                        foreach ($value['catalogs'] as $key3 => $value3) {
+                            $data .= "<h2>{$parent}.{$parent2}、{$value3['cat_name']}</h2>";
+                            $data .= '<div style="margin-left:20px;">';
+                                $child2 = 1 ;
+                                if ($value3['pages']) {
+                                    foreach ($value3['pages'] as $page3) {
+                                        $data .= "<h3>{$parent}.{$parent2}.{$child2}、{$page3['page_title']}</h3>";
+                                        $data .= '<div style="margin-left:30px;">';
+                                            $data .= htmlspecialchars_decode($Parsedown->text($page3['page_content']));
+                                        $data .= '</div>';
+                                        $child2 ++;
+                                    }
+                                }
+                            $data .= '</div>';
+                            $parent2 ++;
                         }
                     }
                 $data .= '</div>';

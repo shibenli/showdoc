@@ -56,7 +56,7 @@ class MemberController extends BaseController {
     public function getList(){
         $item_id = I("item_id/d");
         if ($item_id > 0 ) {
-            $ret = D("ItemMember")->where(" item_id = '$item_id' ")->order(" 'order', addtime asc  ")->select();
+            $ret = D("ItemMember")->where(" item_id = '$item_id' ")->order(" addtime asc  ")->select();
         }
         if ($ret) {
            $this->sendResult($ret);
@@ -79,7 +79,7 @@ class MemberController extends BaseController {
 
         if ($username) {
             
-            $ret = D("ItemMember")->where(" item_id = '%d' and username = '%s'  ",array($item_id,$username))->limit(1)->delete();
+            $ret = D("ItemMember")->where(" item_id = '%d' and username = '%s'  ",array($item_id,$username))->delete();
 
         }
         if ($ret) {
